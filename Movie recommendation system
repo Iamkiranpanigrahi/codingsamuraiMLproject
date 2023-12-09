@@ -1,0 +1,37 @@
+from surprise import Dataset, Reader, KNNBasic
+from surprise.model_selection import train_test_split
+from surprise import accuracy
+
+# Load your movie rating dataset (replace 'path_to_dataset.csv' with your actual file path)
+reader = Reader(line_format='user item rating timestamp', sep=',', rating_scale=(1, 5))
+data = Dataset.load_from_file('path_to_dataset.csv', reader=reader)
+
+# Split the dataset into training and testing sets
+trainset, testset = train_test_split(data, test_size=0.2, random_state=42)
+
+# Use the KNNBasic collaborative filtering algorithm
+sim_options = {'name': 'cosine', 'user_based': False}
+algo = KNNBasic(sim_options=sim_options)
+
+# Train the algorithm on the training set
+algo.fit(trainset)
+
+# Make predictions on the testing set
+predictions = algo.test(testset)
+
+# Evaluate the accuracy of the model
+accuracy.rmse(predictions)
+
+# Recommend movies for a specific user (replace 'user_id' with an actual user ID)
+user_id = 'user_id'
+user_ratings = [(str(user_id), str(item), 4) for item in data.df['item'].unique()]
+user_predictions = algo.test(user_ratings)
+
+# Get top N movie recommendations for the user
+top_n = 10
+recommendations = sorted(user_predictions, key=lambda x: x.est, reverse=True)[:top_n]
+
+# Print the recommended movies
+print(f"\nTop {top_n} Movie Recommendations for User {user_id}:\n")
+for movie in recommendations:
+    print(f"Movie ID: {movie.iid}, Estimated Rating: {movie.est}")
