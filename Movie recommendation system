@@ -1,37 +1,57 @@
-from surprise import Dataset, Reader, KNNBasic
-from surprise.model_selection import train_test_split
-from surprise import accuracy
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
-# Load your movie rating dataset (replace 'path_to_dataset.csv' with your actual file path)
-reader = Reader(line_format='user item rating timestamp', sep=',', rating_scale=(1, 5))
-data = Dataset.load_from_file('path_to_dataset.csv', reader=reader)
+# Load your movie rating dataset
+df = pd.read_csv('path_to_dataset.csv')
+
+# Preprocess the data
+df.columns = ['user', 'item', 'rating', 'timestamp']
+df.drop('timestamp', axis=1, inplace=True)
+
+# Create the user-item matrix
+user_item_matrix = df.pivot(index='user', columns='item', values='rating').fillna(0)
 
 # Split the dataset into training and testing sets
-trainset, testset = train_test_split(data, test_size=0.2, random_state=42)
+train_data, test_data = train_test_split(df, test_size=0.2, random_state=42)
 
-# Use the KNNBasic collaborative filtering algorithm
-sim_options = {'name': 'cosine', 'user_based': False}
-algo = KNNBasic(sim_options=sim_options)
+# Create user-item matrices for train and test sets
+train_matrix = user_item_matrix.copy()
+for row in test_data.itertuples():
+    train_matrix.at[row.user, row.item] = 0
 
-# Train the algorithm on the training set
-algo.fit(trainset)
+test_matrix = user_item_matrix.copy()
+for row in train_data.itertuples():
+    test_matrix.at[row.user, row.item] = 0
 
-# Make predictions on the testing set
-predictions = algo.test(testset)
+# Use cosine similarity
+item_similarity = cosine_similarity(train_matrix.T)
+item_similarity_df = pd.DataFrame(item_similarity, index=user_item_matrix.columns, columns=user_item_matrix.columns)
 
-# Evaluate the accuracy of the model
-accuracy.rmse(predictions)
+# Predict ratings
+predicted_ratings = train_matrix.dot(item_similarity_df) / np.array([np.abs(item_similarity_df).sum(axis=1)])
 
-# Recommend movies for a specific user (replace 'user_id' with an actual user ID)
-user_id = 'user_id'
-user_ratings = [(str(user_id), str(item), 4) for item in data.df['item'].unique()]
-user_predictions = algo.test(user_ratings)
+# Calculate RMSE for test set
+def rmse(pred, actual):
+    pred = pred[actual.nonzero()].flatten()
+    actual = actual[actual.nonzero()].flatten()
+    return np.sqrt(((pred - actual) ** 2).mean())
+
+test_matrix_values = test_matrix.values
+rmse_value = rmse(predicted_ratings.values, test_matrix_values)
+print(f"RMSE: {rmse_value}")
+
+# Recommend movies for a specific user
+user_id = 'user_id'  # Replace with actual user ID
+user_idx = user_item_matrix.index.get_loc(user_id)
+user_predicted_ratings = predicted_ratings.iloc[user_idx]
 
 # Get top N movie recommendations for the user
 top_n = 10
-recommendations = sorted(user_predictions, key=lambda x: x.est, reverse=True)[:top_n]
+recommended_movies = user_predicted_ratings.sort_values(ascending=False).head(top_n)
 
 # Print the recommended movies
 print(f"\nTop {top_n} Movie Recommendations for User {user_id}:\n")
-for movie in recommendations:
-    print(f"Movie ID: {movie.iid}, Estimated Rating: {movie.est}")
+for movie_id, est_rating in recommended_movies.items():
+    print(f"Movie ID: {movie_id}, Estimated Rating: {est_rating}")
